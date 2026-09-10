@@ -172,7 +172,7 @@ function updateHand(dt){
  }
 }
 
-const renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:"high-performance"});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.25));renderer.outputEncoding=THREE.sRGBEncoding;document.getElementById("game").appendChild(renderer.domElement);
+const renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:"high-performance"});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio||1,isTouchDevice?.72:1.25));renderer.outputEncoding=THREE.sRGBEncoding;document.getElementById("game").appendChild(renderer.domElement);
 scene.add(new THREE.HemisphereLight(0xe7f4ff,0x62704b,1.42));
 const sun=new THREE.DirectionalLight(0xfff2cf,1.02);sun.position.set(38,55,22);scene.add(sun);
 
@@ -1390,11 +1390,16 @@ function applyPerformancePreset(name){
  lowResourceCheck.checked=false;
 
  if(name==="low"){
-   DIST=4;SIM_DIST=3;MAX_PARTICLES=120;MAX_DROPS=40;MAX_MOBS=7;
-   renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.15));
+   if(isTouchDevice){
+     DIST=2;SIM_DIST=1;MAX_PARTICLES=40;MAX_DROPS=18;MAX_MOBS=4;
+     renderer.setPixelRatio(Math.min(devicePixelRatio||1,.72));
+   }else{
+     DIST=4;SIM_DIST=3;MAX_PARTICLES=120;MAX_DROPS=40;MAX_MOBS=7;
+     renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.15));
+   }
  }else if(name==="medium"){
    DIST=5;SIM_DIST=3;MAX_PARTICLES=150;MAX_DROPS=48;MAX_MOBS=9;
-   renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.25));
+   renderer.setPixelRatio(Math.min(devicePixelRatio||1,isTouchDevice?.72:1.25));
  }else{
    DIST=6;SIM_DIST=4;MAX_PARTICLES=160;MAX_DROPS=56;MAX_MOBS=10;
    renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.35));
@@ -1410,8 +1415,15 @@ function applyLowResource(enabled){
  lowResourceCheck.checked=enabled;
 
  if(enabled){
-   DIST=3;SIM_DIST=2;MAX_PARTICLES=70;MAX_DROPS=28;MAX_MOBS=5;
-   renderer.setPixelRatio(Math.min(devicePixelRatio||1,.9));
+   if(isTouchDevice){
+     DIST=2;SIM_DIST=1;MAX_PARTICLES=28;MAX_DROPS=12;MAX_MOBS=3;
+     MAX_FPS=30;
+     renderer.setPixelRatio(Math.min(devicePixelRatio||1,.65));
+     cloudGroup.visible=false;
+   }else{
+     DIST=3;SIM_DIST=2;MAX_PARTICLES=70;MAX_DROPS=28;MAX_MOBS=5;
+     renderer.setPixelRatio(Math.min(devicePixelRatio||1,.9));
+   }
  }else{
    applyPerformancePreset(qualitySelect.value);
    return;
@@ -1487,7 +1499,21 @@ document.addEventListener("visibilitychange",()=>{
 });
 
 applyPerformancePreset("low");
-if(isTouchDevice){DIST=3;SIM_DIST=2;MAX_MOBS=5;MAX_PARTICLES=70;MAX_DROPS=28;renderer.setPixelRatio(Math.min(devicePixelRatio||1,.9));updatePerformanceSummary();}
+if(isTouchDevice){
+ DIST=2;
+ SIM_DIST=1;
+ MAX_FPS=30;
+ MAX_MOBS=4;
+ MAX_PARTICLES=40;
+ MAX_DROPS=18;
+ renderer.setPixelRatio(Math.min(devicePixelRatio||1,.72));
+ cloudGroup.visible=false;
+ qualitySelect.value="low";
+ fpsSelect.value="30";
+ updatePerformanceSummary();
+ ccx=99999;ccz=99999;
+ updateChunks(true);
+}
 
 
 // ---------- CONTROLES TÁCTILES ----------
@@ -1572,29 +1598,72 @@ btnBackpack?.addEventListener("touchstart",e=>{toggleBackpack();resetJoystick();
 
 // Hotbar móvil: toque = seleccionar, pulsación larga + arrastre = reordenar.
 for(const slot of slots){
- let holdTimer=null,touchDragging=false;
- slot.addEventListener("touchstart",()=>{
+ let holdTimer=null;
+ let touchDragging=false;
+ let touchId=null;
+ let startX=0,startY=0;
+
+ slot.addEventListener("touchstart",e=>{
+   const t=e.changedTouches[0];
+   touchId=t.identifier;
+   startX=t.clientX;
+   startY=t.clientY;
    touchDragging=false;
-   holdTimer=setTimeout(()=>{touchDragging=true;slot.classList.add("dragging")},320);
+
+   clearTimeout(holdTimer);
+   holdTimer=setTimeout(()=>{
+     touchDragging=true;
+     slot.classList.add("dragging");
+   },420);
+
+   e.stopPropagation();
  },{passive:true});
+
  slot.addEventListener("touchmove",e=>{
-   if(!touchDragging)return;
-   const t=e.changedTouches[0];slots.forEach(s=>s.classList.remove("dragOver"));
-   const target=document.elementFromPoint(t.clientX,t.clientY)?.closest?.(".slot");
-   if(target&&target!==slot&&target.style.display!=="none")target.classList.add("dragOver");
-   e.preventDefault();
+   const t=[...e.changedTouches].find(v=>v.identifier===touchId);
+   if(!t)return;
+
+   const moved=Math.hypot(t.clientX-startX,t.clientY-startY);
+   if(!touchDragging&&moved>12){
+     clearTimeout(holdTimer);
+   }
+
+   if(touchDragging){
+     slots.forEach(s=>s.classList.remove("dragOver"));
+     const target=document.elementFromPoint(t.clientX,t.clientY)?.closest?.(".slot");
+     if(target&&target!==slot&&target.style.display!=="none")target.classList.add("dragOver");
+     e.preventDefault();
+   }
  },{passive:false});
+
  slot.addEventListener("touchend",e=>{
-   clearTimeout(holdTimer);const t=e.changedTouches[0];
+   clearTimeout(holdTimer);
+   const t=[...e.changedTouches].find(v=>v.identifier===touchId)||e.changedTouches[0];
+
    if(touchDragging){
      const target=document.elementFromPoint(t.clientX,t.clientY)?.closest?.(".slot");
      if(target&&target!==slot&&target.style.display!=="none"){
-       const r=target.getBoundingClientRect(),after=t.clientX>r.left+r.width/2;
+       const r=target.getBoundingClientRect();
+       const after=t.clientX>r.left+r.width/2;
        hotbar.insertBefore(slot,after?target.nextSibling:target);
-       saveHotbarOrder();refreshHotbarNumbers();
+       saveHotbarOrder();
+       refreshHotbarNumbers();
      }
-   }else selectItem(slot.dataset.item);
-   slots.forEach(s=>s.classList.remove("dragging","dragOver"));touchDragging=false;
+   }else{
+     selectItem(slot.dataset.item);
+   }
+
+   slots.forEach(s=>s.classList.remove("dragging","dragOver"));
+   touchDragging=false;
+   touchId=null;
+   e.stopPropagation();
+ },{passive:true});
+
+ slot.addEventListener("touchcancel",()=>{
+   clearTimeout(holdTimer);
+   touchDragging=false;
+   touchId=null;
+   slots.forEach(s=>s.classList.remove("dragging","dragOver"));
  },{passive:true});
 }
 
@@ -1698,10 +1767,13 @@ renderer.domElement.addEventListener("mousedown",e=>{
  }
  if(e.button===2)place();
 });document.addEventListener("mouseup",e=>{if(e.button===0)cancelMining()});renderer.domElement.oncontextmenu=e=>e.preventDefault();
-window.onresize=()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.25))};
+window.onresize=()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio||1,isTouchDevice?.72:1.25))};
 
 resetPlayer();spawnStart();refreshUI();refreshHeldItem();drawBackpack();refreshHotbarNumbers();setHotbarReorderHint();
 const clock=new THREE.Clock();
+let mobileMobTimer=0;
+let mobileDropTimer=0;
+
 function loop(now=performance.now()){
  requestAnimationFrame(loop);
 
@@ -1720,10 +1792,25 @@ function loop(now=performance.now()){
    updatePlayer(dt);
    processChunkQueues();
    updateMining(dt);
-   updateMobs(dt);
-   updateShots(dt);
-   updateParticles(dt);
-   updateDrops(dt);
+   if(isTouchDevice){
+     mobileMobTimer+=dt;
+     mobileDropTimer+=dt;
+     if(mobileMobTimer>=.10){
+       updateMobs(mobileMobTimer);
+       updateShots(mobileMobTimer);
+       mobileMobTimer=0;
+     }
+     updateParticles(dt);
+     if(mobileDropTimer>=.066){
+       updateDrops(mobileDropTimer);
+       mobileDropTimer=0;
+     }
+   }else{
+     updateMobs(dt);
+     updateShots(dt);
+     updateParticles(dt);
+     updateDrops(dt);
+   }
    updateHand(dt);
 
    skyDome.position.copy(camera.position);
